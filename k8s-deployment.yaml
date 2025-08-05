@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: mi-crud-container
-          image: zagui/image-api:latest
-          imagePullPolicy: Always
+          image: mi-crud-app-reto:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 3001

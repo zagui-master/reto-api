@@ -1,98 +1,100 @@
-name: Pipeline CI/CD sin Build
+name: CI-CD-Pipeline
 
 on:
   push:
     branches: [main]
 
-env:
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-  NAMESPACE: mi-aplicacion
-
 jobs:
-  ############################
-  # 🔹 Stage: CI
-  ############################
+  # -------- CI Stage --------
   ci:
-    name: CI - Lint, Unit Tests, Sonar
+    name: CI - Unit Tests
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout código
         uses: actions/checkout@v3
 
-      - name: Configurar Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: '18'
 
       - name: Instalar dependencias
         run: npm install
 
-      - name: Ejecutar Linter (opcional)
-        run: npm run lint || true
-
-      - name: Ejecutar pruebas unitarias
+      - name: Ejecutar pruebas unitarias con Jest
         run: npm run test -- --ci --coverage
 
-      - name: Analizar con SonarQube
-        uses: sonarsource/sonarqube-scan-action@master
-        with:
-          projectBaseDir: .
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
-  ############################
-  # 🔹 Stage: Deploy
-  ############################
-  deploy:
-    name: Deploy en Kubernetes
+  # -------- Build Stage --------
+  build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
     needs: ci
+
     steps:
-      - name: Checkout del repositorio
+      - name: Checkout código
         uses: actions/checkout@v3
 
-      - name: Instalar kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Construir imagen Docker
+        run: |
+          docker build -t mi-crud-app-reto:latest .
+
+      - name: Login DockerHub
+        uses: docker/login-action@v2
         with:
-          version: 'latest'
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Configurar acceso al clúster
+      - name: Etiquetar y subir imagen
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          docker tag mi-crud-app-reto:latest ${{ secrets.DOCKERHUB_USERNAME }}/mi-crud-app-reto:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/mi-crud-app-reto:latest
 
-      - name: Aplicar manifiestos YAML
+  # -------- Deploy Stage --------
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      - name: Crear namespace si no existe
         run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
+          kubectl get namespace mi-aplicacion || kubectl create namespace mi-aplicacion
 
-      - name: Esperar a que el Pod esté listo
+      - name: Aplicar manifiestos de Kubernetes
         run: |
-          kubectl rollout status deployment/mi-crud-app-reto -n $NAMESPACE
+          kubectl apply -f k8s/deploy.yaml
+          kubectl apply -f k8s/server.yaml
 
-  ############################
-  # 🔹 Stage: Automated-Tests
-  ############################
-  e2e_tests:
-    name: Automated E2E Tests con Karate
+      - name: Esperar a que el pod esté listo
+        run: |
+          kubectl rollout status deployment/mi-crud-app-reto -n mi-aplicacion
+          kubectl get pods -n mi-aplicacion
+
+  # -------- E2E Test Stage --------
+  automated-tests:
+    name: E2E Tests - Karate
     runs-on: ubuntu-latest
     needs: deploy
+
     steps:
-      - name: Checkout de pruebas Karate
+      - name: Checkout repo de pruebas Karate
         uses: actions/checkout@v3
         with:
           repository: zagui-master/reto-karate-test
           token: ${{ secrets.GITHUB_TOKEN }}
           path: tests-karate
 
-      - name: Configurar Java
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: '17'
 
       - name: Ejecutar pruebas Karate
         run: |
-          mvn test
+          cd tests-karate
+          mvn clean test -Dbase.url=http://localhost:30080

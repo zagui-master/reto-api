@@ -18,12 +18,6 @@ describe('API de Tareas', () => {
     await request(app).delete(`/tareas/${res.body.id}`);
   });
 
-/*   test('Debe rechazar creación sin título', async () => {
-    const res = await request(app).post('/tareas').send({});
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toHaveProperty('error');
-  }); */
-
   test('Debe listar tareas', async () => {
     await request(app).post('/tareas').send({ titulo: 'Una tarea' });
 
