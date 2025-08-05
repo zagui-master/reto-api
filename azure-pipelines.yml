@@ -1,0 +1,122 @@
+name: crud-express
+
+trigger:
+  branches:
+    include:
+      - main
+
+resources:
+  repositories:
+    - repository: proyecto-crud-express
+      type: git
+      name: proyecto-crud-express
+      ref: refs/heads/main
+
+variables:
+  dockerImage: 'zagui/image-api:latest'
+  namespace: 'mi-aplicacion'
+  deploymentName: 'mi-crud-app-reto'
+
+stages:
+  # 🔹 STAGE 1: CI - Lint, pruebas unitarias y SonarQube
+  - stage: CI
+    displayName: 'Lint, pruebas unitarias y análisis SonarQube'
+    jobs:
+      - job: LintAndTest
+        displayName: 'Lint y test'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '18.x'
+            displayName: 'Usar Node.js 18'
+
+          - script: npm install
+            displayName: 'Instalar dependencias'
+
+          - script: npm run lint
+            displayName: 'Ejecutar Linter'
+
+          - task: SonarQubePrepare@5
+            displayName: 'Preparar análisis con SonarQube'
+            inputs:
+              SonarQube: 'SonarQubeServiceConnection'
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'mi-crud-app-reto'
+              cliProjectName: 'mi-crud-app-reto'
+              cliSources: '.'
+
+          - script: npm test
+            displayName: 'Ejecutar pruebas unitarias'
+
+          - task: SonarQubeAnalyze@5
+            displayName: 'Analizar código con SonarQube'
+
+          - task: SonarQubePublish@5
+            displayName: 'Publicar resultados SonarQube'
+            inputs:
+              pollingTimeoutSec: '300'
+
+  # 🔹 STAGE 2: BUILD - Pull desde Docker Hub
+  - stage: Build
+    displayName: 'Verificar imagen Docker desde Docker Hub'
+    dependsOn: CI
+    jobs:
+      - job: PullImage
+        displayName: 'Pull imagen Docker'
+        pool:
+          name: Default
+        steps:
+          - script: |
+              echo "Descargando imagen desde Docker Hub..."
+              docker pull $(dockerImage)
+              echo "Imagen descargada: $(dockerImage)"
+            displayName: 'Pull imagen desde Docker Hub'
+
+  # 🔹 STAGE 3: DEPLOY - Kubernetes local
+  - stage: Deploy
+    displayName: 'Desplegar en Kubernetes local'
+    dependsOn: Build
+    jobs:
+      - job: K8sDeploy
+        displayName: 'Aplicar YAMLs y verificar pod'
+        pool:
+          name: Default
+        steps:
+          - script: |
+              echo "Crear namespace si no existe..."
+              kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
+
+              echo "Aplicando YAMLs..."
+              kubectl apply -f k8s-deployment.yaml -n $(namespace)
+              kubectl apply -f k8s-service.yaml -n $(namespace)
+
+              echo "Esperando disponibilidad del pod..."
+              kubectl rollout status deployment/$(deploymentName) -n $(namespace)
+            displayName: 'Desplegar en Kubernetes'
+
+  # 🔹 STAGE 4: AUTOMATED TESTS - Karate
+  - stage: Automated_Tests
+    displayName: 'Ejecutar pruebas E2E con Karate'
+    dependsOn: Deploy
+    jobs:
+      - job: RunKarate
+        displayName: 'Pruebas Karate'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+          - checkout: testsKarate
+
+          - task: JavaToolInstaller@0
+            displayName: 'Instalar Java 17'
+            inputs:
+              versionVersion: '17'
+              jdkArchitecture: 'x64'
+              jdkSourceOption: 'PreInstalled'
+
+          - script: mvn clean test
+            workingDirectory: $(Pipeline.Workspace)/testsKarate
+            displayName: 'Ejecutar pruebas Karate'

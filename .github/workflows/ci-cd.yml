@@ -1,0 +1,98 @@
+name: Pipeline CI/CD sin Build
+
+on:
+  push:
+    branches: [main]
+
+env:
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  NAMESPACE: mi-aplicacion
+
+jobs:
+  ############################
+  # 🔹 Stage: CI
+  ############################
+  ci:
+    name: CI - Lint, Unit Tests, Sonar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Ejecutar Linter (opcional)
+        run: npm run lint || true
+
+      - name: Ejecutar pruebas unitarias
+        run: npm run test -- --ci --coverage
+
+      - name: Analizar con SonarQube
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          projectBaseDir: .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  ############################
+  # 🔹 Stage: Deploy
+  ############################
+  deploy:
+    name: Deploy en Kubernetes
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v3
+
+      - name: Instalar kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configurar acceso al clúster
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+
+      - name: Aplicar manifiestos YAML
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Esperar a que el Pod esté listo
+        run: |
+          kubectl rollout status deployment/mi-crud-app-reto -n $NAMESPACE
+
+  ############################
+  # 🔹 Stage: Automated-Tests
+  ############################
+  e2e_tests:
+    name: Automated E2E Tests con Karate
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Checkout de pruebas Karate
+        uses: actions/checkout@v3
+        with:
+          repository: zagui-master/reto-karate-test
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests-karate
+
+      - name: Configurar Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Ejecutar pruebas Karate
+        run: |
+          mvn test

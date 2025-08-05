@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mi-crud-app-reto
+  namespace: mi-aplicacion
+  labels:
+    app: mi-crud-app-reto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mi-crud-app-reto
+  template:
+    metadata:
+      labels:
+        app: mi-crud-app-reto
+    spec:
+      containers:
+        - name: mi-crud-container
+          image: zagui/image-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3001
