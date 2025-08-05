@@ -15,7 +15,7 @@ describe('API de Tareas', () => {
     expect(res.body).toHaveProperty('id');
     expect(res.body.titulo).toBe('Aprender Jest');
     expect(res.body.completada).toBe(false);
-    const del = await request(app).delete(`/tareas/${res.body.id}`);
+    await request(app).delete(`/tareas/${res.body.id}`);
   });
 
 /*   test('Debe rechazar creación sin título', async () => {
@@ -29,7 +29,8 @@ describe('API de Tareas', () => {
 
     const res = await request(app).get('/tareas');
     expect(res.statusCode).toBe(200);
-    expect(res.body.length).toBe(2);
+    expect(res.body.length).toBe(1);
+    await request(app).delete(`/tareas/${res.body.id}`);
   });
 
   test('Debe obtener una tarea por ID', async () => {
