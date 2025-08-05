@@ -57,6 +57,11 @@ jobs:
     needs: build
 
     steps:
+      - name: Configurar kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_CONTENT }}" > ~/.kube/config
+          
       - name: Checkout código
         uses: actions/checkout@v3
 
