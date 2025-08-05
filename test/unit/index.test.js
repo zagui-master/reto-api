@@ -5,7 +5,9 @@ describe('API de Tareas', () => {
   beforeEach(async () => {
     await request(app).post('/reset');
   });
-
+  afterAll((done) => {
+    server.close(done); 
+  });
   test('Debe crear una nueva tarea', async () => {
     const res = await request(app)
       .post('/tareas')
